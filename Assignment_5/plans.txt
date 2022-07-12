@@ -1,0 +1,234 @@
+EXPLAIN ANALYZE SELECT host.id, COUNT(*) 
+FROM listing, host
+WHERE host.id= listing.host_id 
+GROUP BY host.id;
+
+-- BEFORE --
+
+"GroupAggregate  (cost=10000003709.40..10000004195.19 rows=6363 width=12) (actual time=13.984..19.982 rows=6363 loops=1)"
+"  Group Key: host.id"
+"  ->  Merge Join  (cost=10000003709.40..10000004073.85 rows=11541 width=4) (actual time=13.975..17.974 rows=11541 loops=1)"
+"        Merge Cond: (listing.host_id = host.id)"
+"        ->  Sort  (cost=10000003709.11..10000003737.96 rows=11541 width=4) (actual time=13.952..14.380 rows=11541 loops=1)"
+"              Sort Key: listing.host_id"
+"              Sort Method: quicksort  Memory: 925kB"
+"              ->  Seq Scan on listing  (cost=10000000000.00..10000002930.41 rows=11541 width=4) (actual time=0.022..10.342 rows=11541 loops=1)"
+"        ->  Index Only Scan st=0.28..175.73 rows=6363 width=4) (actual time=0.019..0.719 rows=6363 loops=1)"
+"              Heap Fetches: 0"using host_pkey on host  (co
+"Planning Time: 0.355 ms"
+"Execution Time: 20.493 ms"
+
+-- AFTER --
+
+"HashAggregate  (cost=652.69..716.32 rows=6363 width=12) (actual time=8.837..9.781 rows=6363 loops=1)"
+"  Group Key: host.id"
+"  ->  Hash Join  (cost=255.55..594.98 rows=11541 width=4) (actual time=2.616..6.335 rows=11541 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        ->  Index Only Scan using listing_host_id on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.023..1.579 rows=11541 loops=1)"
+"              Heap Fetches: 0"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=2.521..2.521 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_id on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.011..1.093 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning Time: 0.712 ms"
+"Execution Time: 10.395 ms"
+
+/* Query 1: w/out index: 20.493 ms; w/index: 10.395 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+EXPLAIN ANALYZE SELECT id, price
+FROM listing, price
+WHERE guests_included > 5 AND price > 40;
+
+-- BEFORE --
+
+"Nested Loop  (cost=131.06..19441.55 rows=1500330 width=8) (actual time=0.894..349.158 rows=2469774 loops=1)"
+"  ->  Index Only Scan using listings_copy_pkey on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.027..2.138 rows=11541 loops=1)"
+"        Heap Fetches: 0"
+"  ->  Materialize  (cost=130.78..378.35 rows=130 width=4) (actual time=0.000..0.009 rows=214 loops=11541)"
+"        ->  Bitmap Heap Scan on price  (cost=130.78..377.70 rows=130 width=4) (actual time=0.852..2.397 rows=214 loops=1)"
+"              Recheck Cond: (price > '40'::numeric)"
+"              Filter: (guests_included > 5)"
+"              Rows Removed by Filter: 6514"
+"              Heap Blocks: exact=146"
+"              ->  Bitmap Index Scan on price_price  (cost=0.00..130.75 rows=6728 width=0) (actual time=0.803..0.803 rows=6728 loops=1)"
+"                    Index Cond: (price > '40'::numeric)"
+"Planning Time: 27.492 ms"
+"Execution Time: 411.790 ms"
+
+
+-- AFTER -- 
+
+"Nested Loop  (cost=0.57..19071.67 rows=1500330 width=8) (actual time=0.127..296.835 rows=2469774 loops=1)"
+"  ->  Index Only Scan using listings_copy_pkey on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.014..1.576 rows=11541 loops=1)"
+"        Heap Fetches: 0"
+"  ->  Materialize  (cost=0.29..8.46 rows=130 width=4) (actual time=0.000..0.008 rows=214 loops=11541)"
+"        ->  Index Only Scan using price_guests_included on price  (cost=0.29..7.82 rows=130 width=4) (actual time=0.105..0.144 rows=214 loops=1)"
+"              Index Cond: ((guests_included > 5) AND (price > '40'::numeric))"
+"              Heap Fetches: 0"
+"Planning Time: 10.715 ms"
+"Execution Time: 351.866 ms"
+
+/* Query 2: w/out index: 411.790 ms; w/index: 351.866 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN ANALYZE SELECT listing.listing_url, host.url
+FROM listing
+JOIN host
+ON listing.host_id = host.id
+WHERE host.response_rate = '100%'
+
+
+-- BEFORE --
+
+"Hash Join  (cost=603.63..3564.35 rows=7123 width=80) (actual time=3.724..15.385 rows=7696 loops=1)"
+"  Hash Cond: (listing.host_id = host.id)"
+"  ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=41) (actual time=0.018..9.158 rows=11541 loops=1)"
+"  ->  Hash  (cost=554.54..554.54 rows=3927 width=47) (actual time=3.665..3.665 rows=3927 loops=1)"
+"        Buckets: 4096  Batches: 1  Memory Usage: 339kB"
+"        ->  Seq Scan on host  (cost=0.00..554.54 rows=3927 width=47) (actual time=0.009..2.607 rows=3927 loops=1)"
+"              Filter: ((response_rate)::text = '100%'::text)"
+"              Rows Removed by Filter: 2436"
+"Planning Time: 24.376 ms"
+"Execution Time: 15.722 ms"
+
+-- AFTER --
+
+"Hash Join  (cost=10000000655.89..10000003616.62 rows=7123 width=80) (actual time=2.870..13.753 rows=7696 loops=1)"
+"  Hash Cond: (listing.host_id = host.id)"
+"  ->  Seq Scan on listing  (cost=10000000000.00..10000002930.41 rows=11541 width=41) (actual time=0.019..8.628 rows=11541 loops=1)"
+"  ->  Hash  (cost=606.80..606.80 rows=3927 width=47) (actual time=2.816..2.816 rows=3927 loops=1)"
+"        Buckets: 4096  Batches: 1  Memory Usage: 339kB"
+"        ->  Bitmap Heap Scan on host  (cost=82.72..606.80 rows=3927 width=47) (actual time=0.743..2.061 rows=3927 loops=1)"
+"              Recheck Cond: ((response_rate)::text = '100%'::text)"
+"              Heap Blocks: exact=475"
+"              ->  Bitmap Index Scan on host_response_rate  (cost=0.00..81.73 rows=3927 width=0) (actual time=0.625..0.625 rows=3927 loops=1)"
+"                    Index Cond: ((response_rate)::text = '100%'::text)"
+"Planning Time: 0.438 ms"
+"Execution Time: 14.097 ms"
+
+/* Query 3: w/out index: 15.722 ms; w/index: 14.097 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+EXPLAIN ANALYZE SELECT listing.listing_url, room_amenities_connection.listing_id, amenities.amenity_id, amenities.amenity_name
+FROM listing
+JOIN room_amenities_connection
+ON listing.id =room_amenities_connection.listing_id
+JOIN amenities
+ON room_amenities_connection.amenity_id = amenities.amenity_id
+WHERE amenities.amenity_name = 'Pets live on this property'
+
+-- BEFORE --
+
+"Nested Loop  (cost=10000000016.91..10000005471.57 rows=1463 width=60) (actual time=0.290..46.152 rows=116 loops=1)"
+"  ->  Hash Join  (cost=10000000016.62..10000004971.45 rows=1463 width=23) (actual time=0.279..45.771 rows=116 loops=1)"
+"        Hash Cond: (room_amenities_connection.amenity_id = amenities.amenity_id)"
+"        ->  Seq Scan on room_amenities_connection  (cost=10000000000.00..10000004178.28 rows=289628 width=8) (actual time=0.021..18.459 rows=289628 loops=1)"
+"        ->  Hash  (cost=16.61..16.61 rows=1 width=19) (actual time=0.046..0.046 rows=1 loops=1)"
+"              Buckets: 1024  Batches: 1  Memory Usage: 9kB"
+"              ->  Index Scan using amenities_pkey on amenities  (cost=0.14..16.61 rows=1 width=19) (actual time=0.011..0.041 rows=1 loops=1)"
+"                    Filter: ((amenity_name)::text = 'Pets live on this property'::text)"
+"                    Rows Removed by Filter: 197"
+"  ->  Index Scan using listings_copy_pkey on listing  (cost=0.29..0.34 rows=1 width=41) (actual time=0.003..0.003 rows=1 loops=116)"
+"        Index Cond: (id = room_amenities_connection.listing_id)"
+"Planning Time: 0.506 ms"
+"Execution Time: 46.213 ms"
+
+-- AFTER --
+
+"Nested Loop  (cost=10000000008.46..10000005463.13 rows=1463 width=60) (actual time=0.225..37.768 rows=116 loops=1)"
+"  ->  Hash Join  (cost=10000000008.18..10000004963.00 rows=1463 width=23) (actual time=0.218..37.438 rows=116 loops=1)"
+"        Hash Cond: (room_amenities_connection.amenity_id = amenities.amenity_id)"
+"        ->  Seq Scan on room_amenities_connection  (cost=10000000000.00..10000004178.28 rows=289628 width=8) (actual time=0.016..15.287 rows=289628 loops=1)"
+"        ->  Hash  (cost=8.16..8.16 rows=1 width=19) (actual time=0.024..0.024 rows=1 loops=1)"
+"              Buckets: 1024  Batches: 1  Memory Usage: 9kB"
+"              ->  Index Scan using amenities_amenity_name on amenities  (cost=0.14..8.16 rows=1 width=19) (actual time=0.017..0.017 rows=1 loops=1)"
+"                    Index Cond: ((amenity_name)::text = 'Pets live on this property'::text)"
+"  ->  Index Scan using listings_copy_pkey on listing  (cost=0.29..0.34 rows=1 width=41) (actual time=0.003..0.003 rows=1 loops=116)"
+"        Index Cond: (id = room_amenities_connection.listing_id)"
+"Planning Time: 7.214 ms"
+"Execution Time: 37.819 ms"
+
+/* Query 4: w/out index: 46.213 ms; w/index: 37.819 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+EXPLAIN ANALYZE SELECT location.neighbourhood_cleansed, geolocation.geometry_coordinates_0_0_0_0, COUNT(location.listing_id) AS total_houses
+FROM location
+LEFT OUTER JOIN neighbourhood
+ON location.neighbourhood_cleansed = neighbourhood.neighbourhood
+LEFT OUTER JOIN geolocation 
+ON location.neighbourhood_cleansed = geolocation.properties_neighbourhood
+GROUP BY location.neighbourhood_cleansed, geolocation.geometry_coordinates_0_0_0_0
+HAVING COUNT(location.listing_id) > 300
+
+-- BEFORE --
+
+"GroupAggregate  (cost=10000001180.63..10000001350.20 rows=675 width=46) (actual time=20.507..22.747 rows=13 loops=1)"
+"  Group Key: location.neighbourhood_cleansed, geolocation.geometry_coordinates_0_0_0_0"
+"  Filter: (count(location.listing_id) > 300)"
+"  Rows Removed by Filter: 32"
+"  ->  Sort  (cost=10000001180.63..10000001209.48 rows=11541 width=42) (actual time=20.318..20.762 rows=11541 loops=1)"
+"        Sort Key: location.neighbourhood_cleansed, geolocation.geometry_coordinates_0_0_0_0"
+"        Sort Method: quicksort  Memory: 1572kB"
+"        ->  Hash Left Join  (cost=10000000020.38..10000000401.93 rows=11541 width=42) (actual time=0.078..4.830 rows=11541 loops=1)"
+"              Hash Cond: ((location.neighbourhood_cleansed)::text = (geolocation.properties_neighbourhood)::text)"
+"              ->  Seq Scan on location  (cost=10000000000.00..10000000348.41 rows=11541 width=33) (actual time=0.014..0.974 rows=11541 loops=1)"
+"              ->  Hash  (cost=19.82..19.82 rows=45 width=30) (actual time=0.058..0.058 rows=45 loops=1)"
+"                    Buckets: 1024  Batches: 1  Memory Usage: 11kB"
+"                    ->  Index Scan using geolocation_pkey on geolocation  (cost=0.14..19.82 rows=45 width=30) (actual time=0.006..0.044 rows=45 loops=1)"
+"Planning Time: 6.312 ms"
+"Execution Time: 23.208 ms"
+
+-- AFTER --
+
+"HashAggregate  (cost=1568.84..1594.15 rows=675 width=46) (actual time=11.555..11.576 rows=13 loops=1)"
+"  Group Key: location.neighbourhood_cleansed, geolocation.geometry_coordinates_0_0_0_0"
+"  Filter: (count(location.listing_id) > 300)"
+"  Rows Removed by Filter: 32"
+"  ->  Hash Left Join  (cost=20.66..1453.43 rows=11541 width=42) (actual time=0.168..8.299 rows=11541 loops=1)"
+"        Hash Cond: ((location.neighbourhood_cleansed)::text = (geolocation.properties_neighbourhood)::text)"
+"        ->  Index Scan using group_by_neighbourhood on location  (cost=0.29..1399.91 rows=11541 width=33) (actual time=0.084..4.663 rows=11541 loops=1)"
+"        ->  Hash  (cost=19.82..19.82 rows=45 width=30) (actual time=0.077..0.077 rows=45 loops=1)"
+"              Buckets: 1024  Batches: 1  Memory Usage: 11kB"
+"              ->  Index Scan using geolocation_pkey on geolocation  (cost=0.14..19.82 rows=45 width=30) (actual time=0.006..0.054 rows=45 loops=1)"
+"Planning Time: 6.518 ms"
+"Execution Time: 11.705 ms"
+
+/* Query 5: w/out index: 23.208 ms; w/index: 11.705 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+EXPLAIN ANALYZE SELECT listing.id, listing.name, price.price
+FROM listing
+JOIN price
+ON listing.id = price.listing_id
+WHERE price.price < 50
+
+-- BEFORE --
+
+"Hash Join  (cost=10000003310.88..10000003616.84 rows=5976 width=46) (actual time=9.232..12.632 rows=5979 loops=1)"
+"  Hash Cond: (price.listing_id = listing.id)"
+"  ->  Seq Scan on price  (cost=10000000000.00..10000000290.26 rows=5976 width=8) (actual time=0.022..2.078 rows=5979 loops=1)"
+"        Filter: (price < '50'::numeric)"
+"        Rows Removed by Filter: 5562"
+"  ->  Hash  (cost=3166.62..3166.62 rows=11541 width=42) (actual time=9.113..9.113 rows=11541 loops=1)"
+"        Buckets: 16384  Batches: 1  Memory Usage: 968kB"
+"        ->  Index Scan using listings_copy_pkey on listing  (cost=0.29..3166.62 rows=11541 width=42) (actual time=0.011..6.197 rows=11541 loops=1)"
+"Planning Time: 6.632 ms"
+"Execution Time: 13.038 ms"
+
+-- AFTER -- 
+
+"Hash Join  (cost=414.28..3683.66 rows=5976 width=46) (actual time=2.801..10.288 rows=5979 loops=1)"
+"  Hash Cond: (listing.id = price.listing_id)"
+"  ->  Index Scan using listings_copy_pkey on listing  (cost=0.29..3166.62 rows=11541 width=42) (actual time=0.010..5.453 rows=11541 loops=1)"
+"  ->  Hash  (cost=339.30..339.30 rows=5976 width=8) (actual time=2.741..2.741 rows=5979 loops=1)"
+"        Buckets: 8192  Batches: 1  Memory Usage: 321kB"
+"        ->  Bitmap Heap Scan on price  (cost=118.60..339.30 rows=5976 width=8) (actual time=0.568..1.809 rows=5979 loops=1)"
+"              Recheck Cond: (price < '50'::numeric)"
+"              Heap Blocks: exact=146"
+"              ->  Bitmap Index Scan on price_price  (cost=0.00..117.10 rows=5976 width=0) (actual time=0.547..0.547 rows=5979 loops=1)"
+"                    Index Cond: (price < '50'::numeric)"
+"Planning Time: 13.233 ms"
+"Execution Time: 10.601 ms"
+
+/* Query 6: w/out index: 13.038 ms; w/index: 10.601 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------------------

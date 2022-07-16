@@ -5,3 +5,5 @@ Explore data from Airbnb by building queries in SQL, including:
 * min, max, avg
 * distinct
 * like, between 
+
+**Grade:** 100/100

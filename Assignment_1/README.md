@@ -1,7 +1,2 @@
 # Purpose
-Explore data from Airbnb by building queries in SQL, including:
-* inner / outer joins
-* where, order by, group by, limit
-* min, max, avg
-* distinct
-* like, between 
+Initial creation of the database, depicting the shape of the database in an ER diagram.
